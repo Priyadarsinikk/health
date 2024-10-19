@@ -1,0 +1,116 @@
+import numpy as np
+import pandas as pd
+from scipy.optimize import linprog
+import matplotlib.pyplot as plt
+from scipy.integrate import odeint
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+import seaborn as sns
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
+from sklearn.preprocessing import MinMaxScaler
+
+# Load Dataset
+data = pd.read_csv('hospital_readmissions.csv')
+
+# Data Preprocessing
+features = data[['age', 'num_lab_procedures', 'num_medications', 'time_in_hospital']]
+labels = data['readmitted']
+X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
+
+# Predictive Analysis with Linear Regression
+linear_model = LinearRegression().fit(X_train, y_train)
+y_pred = linear_model.predict(X_test)
+print("Linear Regression MSE:", mean_squared_error(y_test, y_pred))
+print("Linear Regression R2 Score:", r2_score(y_test, y_pred))
+
+# Neural Network for Predictive Modeling
+model = Sequential()
+model.add(Dense(64, input_dim=X_train.shape[1], activation='relu'))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+model.fit(X_train, y_train, epochs=50, batch_size=10, validation_split=0.2)
+
+# Evaluate Neural Network
+nn_loss, nn_accuracy = model.evaluate(X_test, y_test)
+print("Neural Network Accuracy:", nn_accuracy)
+
+# Data Simulation for Resource Allocation
+resources = [100, 200, 150]  # Available resources
+costs = [2, 3, 4]  # Cost associated with each resource
+bounds = [(0, res) for res in resources]
+
+demand = [120, 80, 50]
+obj = costs
+lhs_eq = [[1, 1, 1]]
+rhs_eq = [sum(demand)]
+
+opt = linprog(c=obj, A_eq=lhs_eq, b_eq=rhs_eq, bounds=bounds, method='simplex')
+print("Optimal Resource Allocation:", opt.x)
+
+# Simulate SIR Model
+beta = 0.3
+gamma = 0.1
+S0, I0, R0 = 0.99, 0.01, 0.0
+N = S0 + I0 + R0
+t = np.linspace(0, 160, 160)
+
+def deriv(y, t, N, beta, gamma):
+    S, I, R = y
+    dSdt = -beta * S * I
+    dIdt = beta * S * I - gamma * I
+    dRdt = gamma * I
+    return dSdt, dIdt, dRdt
+
+y0 = S0, I0, R0
+ret = odeint(deriv, y0, t, args=(N, beta, gamma))
+S, I, R = ret.T
+
+plt.figure(figsize=(10, 6))
+plt.plot(t, S, 'b', label='Susceptible')
+plt.plot(t, I, 'r', label='Infected')
+plt.plot(t, R, 'g', label='Recovered')
+plt.xlabel('Time /days')
+plt.ylabel('Fraction')
+plt.legend()
+plt.title('SIR Model Simulation')
+plt.show()
+
+# Visualization of Relationships in the Dataset
+sns.pairplot(data[['age', 'num_lab_procedures', 'num_medications', 'time_in_hospital', 'readmitted']])
+plt.show()
+
+# LSTM for Time Series Prediction
+# Assuming 'hospital_visits.csv' contains time-series data of daily hospital visits
+visits_data = pd.read_csv('hospital_visits.csv')
+
+visits = visits_data['visits'].values.reshape(-1, 1)
+scaler = MinMaxScaler(feature_range=(0, 1))
+visits_scaled = scaler.fit_transform(visits)
+
+X, y = [], []
+for i in range(60, len(visits_scaled)):
+    X.append(visits_scaled[i-60:i, 0])
+    y.append(visits_scaled[i, 0])
+X, y = np.array(X), np.array(y)
+X = np.reshape(X, (X.shape[0], X.shape[1], 1))
+
+lstm_model = Sequential()
+lstm_model.add(LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)))
+lstm_model.add(LSTM(50))
+lstm_model.add(Dense(1))
+
+lstm_model.compile(optimizer='adam', loss='mean_squared_error')
+lstm_model.fit(X, y, epochs=20, batch_size=32)
+
+# Predict future hospital visits
+test_data = visits_scaled[-60:]
+X_test = np.array([test_data])
+X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
+visit_pred = lstm_model.predict(X_test)
+visit_pred = scaler.inverse_transform(visit_pred)
+print("Predicted hospital visits for next day:", visit_pred[0][0])
